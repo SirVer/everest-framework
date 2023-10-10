@@ -59,23 +59,23 @@ void Module::signal_ready(const Runtime& rt) const {
     handle_->signal_ready();
 }
 
-void Module::provide_command(const Runtime& rt, const CommandMeta& meta) const {
-    handle_->provide_cmd(std::string(meta.implementation_id), std::string(meta.name), [&rt, meta](json args) {
-        JsonBlob blob = rt.handle_command(meta, json2blob(args));
+void Module::provide_command(const Runtime& rt, rust::String implementation_id, rust::String name) const {
+    handle_->provide_cmd(std::string(implementation_id), std::string(name), [&rt, implementation_id, name](json args) {
+        JsonBlob blob = rt.handle_command(implementation_id, name, json2blob(args));
         return json::parse(blob.data.begin(), blob.data.end());
     });
 }
 
-void Module::subscribe_variable(const Runtime& rt, const CommandMeta& meta) const {
-	// TODO(sirver): I am not sure how to model the multiple slots that could theoretically be here.
-	const Requirement req(std::string(meta.implementation_id), 0);
-    handle_->subscribe_var(req, std::string(meta.name), [&rt, meta](json args) {
-        rt.handle_variable(meta, json2blob(args));
+void Module::subscribe_variable(const Runtime& rt, rust::String implementation_id, rust::String name) const {
+	// TODO(hrapp): I am not sure how to model the multiple slots that could theoretically be here.
+	const Requirement req(std::string(implementation_id), 0);
+    handle_->subscribe_var(req, std::string(name), [&rt, implementation_id, name](json args) {
+        rt.handle_variable(implementation_id, name, json2blob(args));
     });
 }
 
 JsonBlob Module::call_command(rust::Str implementation_id, rust::Str name, JsonBlob blob) const {
-	// TODO(sirver): I am not sure how to model the multiple slots that could theoretically be here.
+	// TODO(hrapp): I am not sure how to model the multiple slots that could theoretically be here.
 	const Requirement req(std::string(implementation_id), 0);
 	json return_value = handle_->call_cmd(req, std::string(name), json::parse(blob.data.begin(), blob.data.end()));
 

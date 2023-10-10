@@ -35,9 +35,9 @@ This is Rust support using cxx.rs to wrap the framework C++ library.
 
 ## Status
 
-NOCOM(#sirver): Update, this is no longer accurate.
+Full support for requiring and providing interfaces is implemented, missing
+currently is:
 
-This code is currently only supporting providing an interface to be implemented, i.e. no variables publish or receiving and no calling of other interfaces. Those features are straightforward, quick and easy to implement, but for now this is probably enough to iron out the integration questions.
-
-- Missing support for EVerest logging
-- Missing support for Configuration options of Modules
+- Support for EVerest logging
+- Support for Configuration options of Modules
+- Support for implementations with `max_connections != 1` or `min_connections != 1`

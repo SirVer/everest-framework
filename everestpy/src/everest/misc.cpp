@@ -49,7 +49,6 @@ ModuleSetup create_setup_from_config(const std::string& module_id, Everest::Conf
 
         auto const& requirement_id = requirement.key();
 
-		  // NOCOM(#sirver): This is the interesting piece to look at.
         json req_route_list = config.resolve_requirement(module_id, requirement_id);
         // if this was a requirement with min_connections == 1 and max_connections == 1,
         // this will be simply a single connection, but an array of connections otherwise

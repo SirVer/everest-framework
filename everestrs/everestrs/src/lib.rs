@@ -4,8 +4,7 @@ use argh::FromArgs;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::RwLock;
-use std::sync::{Weak};
+use std::sync::{RwLock, Weak};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -14,24 +13,16 @@ pub enum Error {
     MissingArgument(&'static str),
     #[error("invalid argument to command call: '{0}'")]
     InvalidArgument(&'static str),
-    #[error("internal Error")]
-    Internal,
 }
 
 pub type Result<T> = ::std::result::Result<T, Error>;
 
 #[cxx::bridge]
 mod ffi {
-    // NOCOM(#sirver): This is misnamed at this point, also not really useful.
-    struct CommandMeta {
-        implementation_id: String,
-        name: String,
-    }
-
     extern "Rust" {
         type Runtime;
-        fn handle_command(self: &Runtime, meta: &CommandMeta, json: JsonBlob) -> JsonBlob;
-        fn handle_variable(self: &Runtime, meta: &CommandMeta, json: JsonBlob);
+        fn handle_command(self: &Runtime, implementation_id: &str, name: &str, json: JsonBlob) -> JsonBlob;
+        fn handle_variable(self: &Runtime, implementation_id: &str, name: &str, json: JsonBlob);
         fn on_ready(&self);
     }
 
@@ -52,24 +43,27 @@ mod ffi {
         /// Returns the interface definition.
         fn get_interface(self: &Module, interface_name: &str) -> JsonBlob;
 
-        /// Registers the callback of the `GenericModule` to be called and calls
+        /// Registers the callback of the `Subscriber` to be called and calls
         /// `Everest::Module::signal_ready`.
         fn signal_ready(self: &Module, rt: &Runtime);
 
-        /// Informs the runtime that we implement the command described in `meta` and registers the
-        /// `handle_command` method from the `GenericModule` as the handler.
-        fn provide_command(self: &Module, rt: &Runtime, meta: &CommandMeta);
+        /// Informs the runtime that we implement the command described by `implementation_id` and
+        /// `name`, and registers the `handle_command` method from the `Subscriber` as the handler.
+        fn provide_command(self: &Module, rt: &Runtime, implementation_id: String, name: String);
 
-        /// Call the command described by 'meta' with the given 'args'. Returns the return value.
+        /// Call the command described by 'implementation_id' and `name` with the given 'args'.
+        /// Returns the return value.
         fn call_command(
             self: &Module,
             implementation_id: &str,
             name: &str,
             args: JsonBlob,
         ) -> JsonBlob;
-        /// Informs the runtime that we want to receive the variable described in `meta` and registers the
-        /// `handle_variable` method from the `GenericModule` as the handler.
-        fn subscribe_variable(self: &Module, rt: &Runtime, meta: &CommandMeta);
+
+        /// Informs the runtime that we want to receive the variable described by
+        /// `implementation_id` and `name` and registers the `handle_variable` method from the
+        /// `Subscriber` as the handler.
+        fn subscribe_variable(self: &Module, rt: &Runtime, implementation_id: String, name: String);
 
         /// Publishes the given `blob` under the `implementation_id` and `name`.
         fn publish_variable(self: &Module, implementation_id: &str, name: &str, blob: JsonBlob);
@@ -164,7 +158,7 @@ impl Runtime {
             .on_ready();
     }
 
-    fn handle_command(&self, meta: &ffi::CommandMeta, json: ffi::JsonBlob) -> ffi::JsonBlob {
+    fn handle_command(&self, impl_id: &str, name: &str, json: ffi::JsonBlob) -> ffi::JsonBlob {
         let blob = self
             .sub_impl
             .read()
@@ -173,12 +167,12 @@ impl Runtime {
             .unwrap()
             .upgrade()
             .unwrap()
-            .handle_command(&meta.implementation_id, &meta.name, json.deserialize())
+            .handle_command(impl_id, name, json.deserialize())
             .unwrap();
         ffi::JsonBlob::from_vec(serde_json::to_vec(&blob).unwrap())
     }
 
-    fn handle_variable(&self, meta: &ffi::CommandMeta, json: ffi::JsonBlob) {
+    fn handle_variable(&self, impl_id: &str, name: &str, json: ffi::JsonBlob) {
         self.sub_impl
             .read()
             .unwrap()
@@ -186,7 +180,7 @@ impl Runtime {
             .unwrap()
             .upgrade()
             .unwrap()
-            .handle_variable(&meta.implementation_id, &meta.name, json.deserialize())
+            .handle_variable(impl_id, name, json.deserialize())
             .unwrap();
     }
 
@@ -237,51 +231,38 @@ impl Runtime {
     }
 
     pub fn set_subscriber(&self, sub_impl: Weak<dyn Subscriber>) {
-
         *self.sub_impl.write().unwrap() = Some(sub_impl);
         let manifest_json = self.cpp_module.as_ref().unwrap().initialize();
         let manifest: schema::Manifest = manifest_json.deserialize();
 
         // Implement all commands for all of our implementations, dispatch everything to the
-        // GenericModule.
+        // Subscriber.
         for (implementation_id, implementation) in manifest.provides {
             let interface_s = self.cpp_module.get_interface(&implementation.interface);
             let interface: schema::Interface = interface_s.deserialize();
             for (name, _) in interface.cmds {
-                let meta = ffi::CommandMeta {
-                    implementation_id: implementation_id.clone(),
-                    name,
-                };
-
-                (self.cpp_module)
+                self.cpp_module
                     .as_ref()
                     .unwrap()
-                    .provide_command(&&self, &meta);
+                    .provide_command(self, implementation_id.clone(), name);
             }
         }
 
         // Subscribe to all variables that might be of interest.
-        // TODO(sirver): This looks very similar to the block above.
+        // TODO(hrapp): This looks very similar to the block above.
         for (implementation_id, provides) in manifest.requires {
             let interface_s = self.cpp_module.get_interface(&provides.interface);
             let interface: schema::Interface = interface_s.deserialize();
             for (name, _) in interface.vars {
-                // NOCOM(#sirver): Look into misc.cpp, create_setup_from_config to get the right
-                // connections here.
-                let meta = ffi::CommandMeta {
-                    implementation_id: implementation_id.clone(),
-                    name,
-                };
-
-                (self.cpp_module)
+                self.cpp_module
                     .as_ref()
                     .unwrap()
-                    .subscribe_variable(&self, &meta);
+                    .subscribe_variable(self, implementation_id.clone(), name);
             }
         }
 
         // Since users can choose to overwrite `on_ready`, we can call signal_ready right away.
-        // TODO(sirver): There were some doubts if this strategy is too inflexible, discuss design
+        // TODO(hrapp): There were some doubts if this strategy is too inflexible, discuss design
         // again.
         (self.cpp_module).as_ref().unwrap().signal_ready(&self);
     }
