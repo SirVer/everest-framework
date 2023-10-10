@@ -46,7 +46,7 @@ JsonBlob Module::get_interface(rust::Str interface_name) const {
     return json2blob(interface_def);
 }
 
-JsonBlob Module::initialize() {
+JsonBlob Module::initialize() const {
     handle_->connect();
     handle_->spawn_main_loop_thread();
 
@@ -82,7 +82,7 @@ JsonBlob Module::call_command(rust::Str implementation_id, rust::Str name, JsonB
 	return json2blob(return_value);
 }
 
-std::shared_ptr<Module> create_module(rust::Str module_id, rust::Str prefix, rust::Str conf) {
+std::unique_ptr<Module> create_module(rust::Str module_id, rust::Str prefix, rust::Str conf) {
     return std::make_unique<Module>(std::string(module_id), std::string(prefix), std::string(conf));
 }
 

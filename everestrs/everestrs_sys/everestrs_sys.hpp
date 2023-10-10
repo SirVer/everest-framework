@@ -15,7 +15,7 @@ class Module {
 public:
     Module(const std::string& module_id, const std::string& prefix, const std::string& conf);
 
-    JsonBlob initialize();
+    JsonBlob initialize() const;
     JsonBlob get_interface(rust::Str interface_name) const;
 
     void signal_ready(const Runtime& rt) const;
@@ -31,4 +31,4 @@ private:
     std::unique_ptr<Everest::Everest> handle_;
 };
 
-std::shared_ptr<Module> create_module(rust::Str module_name, rust::Str prefix, rust::Str conf);
+std::unique_ptr<Module> create_module(rust::Str module_name, rust::Str prefix, rust::Str conf);
